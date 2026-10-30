@@ -1,0 +1,36 @@
+name: Publish Quick Launcher Release
+
+on:
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+    branches: [main, master]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    name: Publish APK release
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: QuickLauncher-debug-apk
+          path: release
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: QuickLauncher
+          name: Quick-App-Launcher ver 1.0.0
+          files: release/app-debug.apk
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          make_latest: true
