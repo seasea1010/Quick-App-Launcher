@@ -16,6 +16,23 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the exact build commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Read app version
+        id: version
+        shell: bash
+        run: |
+          VERSION_NAME="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)"
+          if [ -z "$VERSION_NAME" ]; then
+            echo "Could not read versionName from app/build.gradle.kts"
+            exit 1
+          fi
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=QuickLauncher$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
@@ -25,12 +42,21 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish GitHub Release
+      - name: Refuse to overwrite an existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Refusing to overwrite it."
+            exit 1
+          fi
+
+      - name: Publish versioned GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: QuickLauncher
-          name: Quick-App-Launcher ver 1.0.0
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Quick-App-Launcher ver ${{ steps.version.outputs.name }}
           files: release/app-debug.apk
           fail_on_unmatched_files: true
-          overwrite_files: true
           make_latest: true
