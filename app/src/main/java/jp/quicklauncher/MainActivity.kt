@@ -72,7 +72,7 @@ class MainActivity : Activity() {
         search = EditText(this).apply {
             hint = "アプリを検索"
             textSize = 15f
-            singleLine = true
+            setSingleLine(true)
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setTextColor(ink)
             setHintTextColor(muted)
