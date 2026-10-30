@@ -32,6 +32,7 @@ class MainActivity : Activity() {
     )
 
     private val apps = mutableListOf<LauncherApp>()
+    private var isLoading = true
     private val appLoader = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var list: LinearLayout
@@ -162,6 +163,7 @@ class MainActivity : Activity() {
                 if (isFinishing || isDestroyed) return@post
                 apps.clear()
                 apps.addAll(loaded)
+                isLoading = false
                 renderApps(search.text?.toString().orEmpty())
             }
         }
@@ -176,8 +178,11 @@ class MainActivity : Activity() {
 
         if (filtered.isEmpty()) {
             val empty = TextView(this).apply {
-                text = if (apps.isEmpty()) "アプリを取得できませんでした"
-                    else "該当するアプリがありません"
+                text = when {
+                    isLoading -> "アプリを読み込み中..."
+                    apps.isEmpty() -> "アプリを取得できませんでした"
+                    else -> "該当するアプリがありません"
+                }
                 textSize = 14f
                 setTextColor(muted)
                 gravity = Gravity.CENTER
