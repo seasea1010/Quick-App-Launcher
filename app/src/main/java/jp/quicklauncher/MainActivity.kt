@@ -2,10 +2,14 @@ package jp.quicklauncher
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ResolveInfo
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -16,12 +20,20 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import android.content.pm.ResolveInfo
 import android.text.Editable
 import android.text.TextWatcher
+import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private val apps = mutableListOf<ResolveInfo>()
+    private data class LauncherApp(
+        val info: ResolveInfo,
+        val label: String,
+        val icon: Drawable
+    )
+
+    private val apps = mutableListOf<LauncherApp>()
+    private val appLoader = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var list: LinearLayout
     private lateinit var search: EditText
     private val bg = Color.rgb(248, 249, 251)
@@ -35,7 +47,13 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
             View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         buildScreen()
-        loadApps()
+        loadAppsInBackground()
+    }
+
+    override fun onDestroy() {
+        appLoader.shutdownNow()
+        mainHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     private fun dp(value: Int): Int =
@@ -101,6 +119,14 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(16))
         }
+        val loading = TextView(this).apply {
+            text = "アプリを読み込み中..."
+            textSize = 14f
+            setTextColor(muted)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(36), 0, dp(36))
+        }
+        list.addView(loading)
         scroll.addView(list)
         root.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
@@ -118,22 +144,34 @@ class MainActivity : Activity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun loadApps() {
-        val intent = Intent(Intent.ACTION_MAIN, null)
-            .addCategory(Intent.CATEGORY_LAUNCHER)
-        val found = packageManager.queryIntentActivities(intent, 0)
-        apps.clear()
-        apps.addAll(found.sortedBy {
-            it.loadLabel(packageManager).toString().lowercase()
-        })
-        renderApps("")
+    private fun loadAppsInBackground() {
+        appLoader.execute {
+            val intent = Intent(Intent.ACTION_MAIN, null)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+            val loaded = packageManager.queryIntentActivities(intent, 0)
+                .map { info ->
+                    LauncherApp(
+                        info = info,
+                        label = info.loadLabel(packageManager).toString(),
+                        icon = info.loadIcon(packageManager)
+                    )
+                }
+                .sortedBy { it.label.lowercase() }
+
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                apps.clear()
+                apps.addAll(loaded)
+                renderApps(search.text?.toString().orEmpty())
+            }
+        }
     }
 
     private fun renderApps(query: String) {
         list.removeAllViews()
+        val normalizedQuery = query.trim()
         val filtered = apps.filter {
-            it.loadLabel(packageManager).toString()
-                .contains(query.trim(), ignoreCase = true)
+            it.label.contains(normalizedQuery, ignoreCase = true)
         }
 
         if (filtered.isEmpty()) {
@@ -149,7 +187,7 @@ class MainActivity : Activity() {
             return
         }
 
-        filtered.forEach { info ->
+        filtered.forEach { app ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -158,17 +196,17 @@ class MainActivity : Activity() {
                 isClickable = true
                 isFocusable = true
                 foreground = selectableItemBackground()
-                setOnClickListener { launchApp(info) }
+                setOnClickListener { launchApp(app.info) }
             }
 
             val icon = ImageView(this).apply {
-                setImageDrawable(info.loadIcon(packageManager))
+                setImageDrawable(app.icon)
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
             row.addView(icon, LinearLayout.LayoutParams(dp(42), dp(42)))
 
             val label = TextView(this).apply {
-                text = info.loadLabel(packageManager)
+                text = app.label
                 textSize = 15f
                 setTextColor(ink)
                 maxLines = 1
@@ -191,7 +229,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun selectableItemBackground(): android.graphics.drawable.Drawable? {
+    private fun selectableItemBackground(): Drawable? {
         val attrs = intArrayOf(android.R.attr.selectableItemBackground)
         val typed = obtainStyledAttributes(attrs)
         val drawable = typed.getDrawable(0)
